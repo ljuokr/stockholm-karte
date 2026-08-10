@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Stockholm · Meine Karte</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{
+    --lake:#0f5a8e;        /* Ostsee-Blau (Stockholm-Blau) */
+    --lake-dark:#083a5e;
+    --paper:#f7f9fb;
+    --ink:#20242a;
+    --must:#c8472e;        /* Falunrot-Signal, Must-see */
+    --kayak:#0e7c86;       /* Wasser-Petrol */
+    --bar:#b07c10;         /* Bernstein */
+    --mus:#6b5b95;         /* Museums-Violett */
+    --alt:#c2417f;         /* Alternativ-Magenta */
+    --rnd:#4a7c59;         /* Random-Tannengrün */
+    --des:#46628c;         /* Architektur-Stahlblau */
+    --second:#8d6e63;      /* Vintage-Braun */
+    --bot:#7cb342;         /* Blattgrün */
+    --food:#e0731d;        /* Restaurant-Orange */
+    --radius:16px;
+    --shadow:0 6px 24px rgba(8,58,94,.18);
+    --sat:env(safe-area-inset-top,0px);
+    --sab:env(safe-area-inset-bottom,0px);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:var(--paper);
+  }
+  #map{position:fixed;inset:0;z-index:1;background:#e2e8ee}
+
+  /* ---------- Header ---------- */
+  header{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    padding:calc(var(--sat) + 10px) 14px 0;
+    pointer-events:none;
+  }
+  /* Filter chips: umbrechen statt scrollen */
+  .chips{
+    pointer-events:auto;
+    display:flex;flex-wrap:wrap;gap:7px;
+    padding-bottom:4px;
+  }
+  .chip{
+    flex:0 0 auto;display:flex;align-items:center;gap:6px;
+    border:none;border-radius:999px;
+    padding:8px 12px;font-size:.8rem;font-weight:600;
+    background:#fff;color:var(--ink);
+    box-shadow:0 2px 10px rgba(8,58,94,.14);
+    cursor:pointer;transition:transform .12s ease,opacity .15s ease;
+  }
+  .chip:active{transform:scale(.95)}
+  .chip .dot{width:10px;height:10px;border-radius:50%}
+  .chip[data-cat="must"] .dot{background:var(--must)}
+  .chip[data-cat="kayak"] .dot{background:var(--kayak)}
+  .chip[data-cat="bar"] .dot{background:var(--bar)}
+  .chip[data-cat="mus"] .dot{background:var(--mus)}
+  .chip[data-cat="alt"] .dot{background:var(--alt)}
+  .chip[data-cat="rnd"] .dot{background:var(--rnd)}
+  .chip[data-cat="des"] .dot{background:var(--des)}
+  .chip[data-cat="second"] .dot{background:var(--second)}
+  .chip[data-cat="bot"] .dot{background:var(--bot)}
+  .chip[data-cat="food"] .dot{background:var(--food)}
+  .chip[data-cat="all"] .dot{background:conic-gradient(var(--must) 0 10%,var(--kayak) 10% 20%,var(--bar) 20% 30%,var(--food) 30% 40%,var(--mus) 40% 50%,var(--alt) 50% 60%,var(--rnd) 60% 70%,var(--des) 70% 80%,var(--second) 80% 90%,var(--bot) 90% 100%)}
+  .chip.off{opacity:.45}
+  .chip.off .dot{background:#9aa3ab !important}
+
+  /* ---------- Marker ---------- */
+  .pin{
+    display:flex;align-items:center;justify-content:center;
+    width:38px;height:38px;border-radius:50% 50% 50% 6px;
+    transform:rotate(0deg);
+    font-size:19px;line-height:1;
+    border:2.5px solid #fff;
+    box-shadow:0 3px 10px rgba(8,58,94,.35);
+  }
+  .pin.must{background:var(--must)}
+  .pin.kayak{background:var(--kayak)}
+  .pin.bar{background:var(--bar)}
+  .pin.mus{background:var(--mus)}
+  .pin.alt{background:var(--alt)}
+  .pin.rnd{background:var(--rnd)}
+  .pin.des{background:var(--des)}
+  .pin.second{background:var(--second)}
+  .pin.bot{background:var(--bot)}
+  .pin.food{background:var(--food)}
+  .pin.own{background:#546e7a}
+
+  /* ---------- Bottom Sheet ---------- */
+  .sheet{
+    position:fixed;left:0;right:0;bottom:0;z-index:30;
+    background:#fff;border-radius:22px 22px 0 0;
+    box-shadow:0 -8px 32px rgba(8,58,94,.22);
+    padding:10px 20px calc(var(--sab) + 20px);
+    transform:translateY(110%);
+    transition:transform .28s cubic-bezier(.32,.72,.3,1);
+    max-height:55vh;overflow-y:auto;
+  }
+  .sheet.open{transform:translateY(0)}
+  .grabber{width:40px;height:4px;border-radius:2px;background:#d5dade;margin:0 auto 12px}
+  .sheet .tag{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    padding:4px 10px;border-radius:999px;color:#fff;margin-bottom:8px;
+  }
+  .sheet .tag.must{background:var(--must)}
+  .sheet .tag.kayak{background:var(--kayak)}
+  .sheet .tag.bar{background:var(--bar)}
+  .sheet .tag.mus{background:var(--mus)}
+  .sheet .tag.alt{background:var(--alt)}
+  .sheet .tag.rnd{background:var(--rnd)}
+  .sheet .tag.des{background:var(--des)}
+  .sheet .tag.second{background:var(--second)}
+  .sheet .tag.bot{background:var(--bot)}
+  .sheet .tag.food{background:var(--food)}
+  .sheet .tag.own{background:#546e7a}
+  .sheet .tag.boat{background:#00695c}
+  .sheet .sub{font-size:.74rem;font-weight:700;color:var(--ink);margin-bottom:2px}
+  .sheet h2{font-size:1.25rem;font-weight:800;line-height:1.25;margin-bottom:6px}
+  .sheet .note{font-size:.92rem;line-height:1.55;color:#454c53}
+  .sheet .meta{font-size:.8rem;color:#79828a;margin-top:10px}
+  .sheet a.route{
+    display:inline-block;margin-top:14px;
+    background:var(--lake);color:#fff;text-decoration:none;
+    font-size:.88rem;font-weight:700;
+    padding:11px 18px;border-radius:12px;
+  }
+  .sheet a.route:active{background:var(--lake-dark)}
+  .sheet a.web{background:#fff;color:var(--lake);border:1.5px solid var(--lake);margin-left:8px}
+  .sheet a.del{background:#fff;color:#b3261e;border:1.5px solid #b3261e;margin-left:8px;cursor:pointer}
+
+  /* ---------- Eigener Standort ---------- */
+  .me-dot{
+    width:18px;height:18px;border-radius:50%;
+    background:#1a73e8;border:3px solid #fff;
+    box-shadow:0 0 0 2px rgba(26,115,232,.35),0 2px 8px rgba(8,58,94,.3);
+  }
+  .me-rose{position:relative;width:48px;height:48px}
+  .me-rose .me-dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+  .me-beam{
+    position:absolute;inset:0;border-radius:50%;display:none;
+    background:conic-gradient(from -26deg, rgba(26,115,232,.4) 0 52deg, transparent 52deg);
+  }
+  .me-pulse{animation:pulse 2s ease-out infinite}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 2px rgba(26,115,232,.35),0 0 0 0 rgba(26,115,232,.45)}
+    70%{box-shadow:0 0 0 2px rgba(26,115,232,.35),0 0 0 18px rgba(26,115,232,0)}
+    100%{box-shadow:0 0 0 2px rgba(26,115,232,.35),0 0 0 0 rgba(26,115,232,0)}
+  }
+  @media (prefers-reduced-motion:reduce){.me-pulse{animation:none}}
+  .locate-btn{
+    position:fixed;right:14px;bottom:calc(var(--sab) + 24px);z-index:25;
+    width:52px;height:52px;border-radius:50%;border:none;
+    background:#fff;color:var(--lake);font-size:22px;
+    box-shadow:var(--shadow);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .12s ease;
+  }
+  .locate-btn:active{transform:scale(.92)}
+  .locate-btn.active{background:var(--lake);color:#fff}
+
+  /* Leaflet Bedienelemente unter die (bis zu 3 Zeilen) Chips schieben */
+  .leaflet-top{top:calc(var(--sat) + 150px)}
+  .leaflet-control-attribution{font-size:9px}
+
+  /* ---------- Desktop-Anpassung (mobile first, dann hoch) ---------- */
+  @media (min-width:760px){
+    header{left:20px;right:auto;width:380px}
+    .sheet{left:20px;right:auto;width:380px;border-radius:22px;bottom:20px;max-height:50vh}
+    .leaflet-top{top:20px}
+    .leaflet-left{left:auto;right:10px}
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<header>
+  <div class="chips" id="chips">
+    <button class="chip" data-cat="all"><span class="dot"></span>Alle</button>
+    <button class="chip" data-cat="must"><span class="dot"></span>⭐ Must-sees</button>
+    <button class="chip" data-cat="kayak"><span class="dot"></span>🛶 Kajak</button>
+    <button class="chip" data-cat="bar"><span class="dot"></span>🍸 Bars</button>
+    <button class="chip" data-cat="food"><span class="dot"></span>🍽️ Essen</button>
+    <button class="chip" data-cat="mus"><span class="dot"></span>🖼️ Museen</button>
+    <button class="chip" data-cat="alt"><span class="dot"></span>🎨 Alternativ</button>
+    <button class="chip" data-cat="rnd"><span class="dot"></span>🎲 Random</button>
+    <button class="chip" data-cat="des"><span class="dot"></span>📐 Design</button>
+    <button class="chip" data-cat="second"><span class="dot"></span>♻️ Secondhand</button>
+    <button class="chip" data-cat="bot"><span class="dot"></span>🌿 Gärten</button>
+  </div>
+</header>
+
+<button class="locate-btn" id="locateBtn" aria-label="Meinen Standort anzeigen" title="Mein Standort">➤</button>
+
+<div class="sheet" id="sheet">
+  <div class="grabber"></div>
+  <span class="tag" id="sheetTag"></span>
+  <p class="sub" id="sheetSub"></p>
+  <h2 id="sheetTitle"></h2>
+  <p class="note" id="sheetNote"></p>
+  <p class="meta" id="sheetMeta"></p>
+  <a class="route" id="sheetRoute" target="_blank" rel="noopener">Route in Google Maps</a>
+  <a class="route web" id="sheetWeb" target="_blank" rel="noopener">Website</a>
+  <a class="route del" id="sheetDel" role="button">Pin löschen</a>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const CATS = {
+  must:   {label:"Must-see",     emoji:"⭐"},
+  kayak:  {label:"Kajak",        emoji:"🛶"},
+  bar:    {label:"Bar & Kneipe", emoji:"🍸"},
+  food:   {label:"Restaurant & Fika", emoji:"🍽️"},
+  mus:    {label:"Museum",       emoji:"🖼️"},
+  alt:    {label:"Alternativ",   emoji:"🎨"},
+  rnd:    {label:"Random Sight", emoji:"🎲"},
+  des:    {label:"Design & Architektur", emoji:"📐"},
+  second: {label:"Secondhand & Brocki", emoji:"♻️"},
+  bot:    {label:"Garten & Botanik", emoji:"🌿"},
+  own:    {label:"Eigener Pin", emoji:"📍"},
+  boat:   {label:"Fähre", emoji:"⛴️"}
+};
+
+const PLACES = [
+  // ---------- Must-sees ----------
+  {cat:"must", sub:"Mittelalterlicher Stadtkern seit 1252", name:"Gamla Stan & Stortorget", lat:59.32493, lng:18.07049,
+   note:"Die Altstadtinsel ist einer der besterhaltenen mittelalterlichen Stadtkerne Europas, gegründet 1252, mit Kellergewölben, schiefen Gassen und Fassaden in Ocker und Falunrot. Am Stortorget mit den berühmten bunten Giebelhäusern liess Christian II. von Dänemark 1520 beim Stockholmer Blutbad über 80 Adlige und Bürger hinrichten, was den Aufstand Gustav Vasas und damit das moderne Schweden auslöste. Die Parallelgasse Prästgatan ist früh am Morgen fast menschenleer und stimmungsvoller als die Souvenirmeile Västerlånggatan. Storkyrkan gleich nebenan zeigt die spätgotische Holzskulptur des heiligen Georg mit dem Drachen von 1489.",
+   meta:"T-bana Gamla stan · Gassen frei zugänglich · früh morgens am schönsten"},
+  {cat:"must", sub:"Eines der grössten Schlösser Europas", name:"Kungliga Slottet", lat:59.32695, lng:18.07176,
+   note:"Mit über 600 Räumen gehört das königliche Schloss zu den grössten Palästen Europas, gebaut nach dem Brand der alten Burg Tre Kronor 1697 nach Plänen von Nicodemus Tessin dem Jüngeren. Es ist offizielle Residenz des Königs und zugleich Arbeitsplatz, die Familie wohnt aber draussen in Drottningholm. Zu besichtigen sind Repräsentationsräume, Schatzkammer mit den Reichsinsignien und das Museum Tre Kronor zu Vorgängerburg und Brand. Die Wachablösung mit Musikkorps um die Mittagszeit im Aussenhof ist gratis und ziemlich pompös.",
+   meta:"Gamla Stan · täglich, im Winter Di bis So · Wachablösung ca. 12.15 Uhr, So später", url:"https://www.kungligaslotten.se/"},
+  {cat:"must", sub:"Das gehobene Kriegsschiff von 1628", name:"Vasamuseet", lat:59.32800, lng:18.09140,
+   note:"Das Kriegsschiff Vasa kenterte 1628 auf der Jungfernfahrt nach nur rund 1300 Metern im Stockholmer Hafen, weil es zu schmal und zu hoch gebaut war. 1961 wurde es nach 333 Jahren fast unversehrt gehoben, das brackige Ostseewasser hatte den Schiffsbohrwurm ferngehalten, darum sind gegen 98 Prozent original. Der 69 Meter lange, komplett geschnitzte Rumpf im dunklen Museumsbau ist einer der eindrücklichsten Museumsmomente überhaupt und das meistbesuchte Museum Skandinaviens. Früh oder spät am Tag kommen, dazwischen schieben sich die Kreuzfahrtgruppen durch.",
+   meta:"Galärvarvet, Djurgården · täglich · ca. SEK 190", url:"https://www.vasamuseet.se/"},
+  {cat:"must", sub:"Ältestes Freilichtmuseum der Welt", name:"Skansen", lat:59.32650, lng:18.10300,
+   note:"Das älteste Freilichtmuseum der Welt, 1891 von Artur Hazelius gegründet, versammelt auf einem Hügel über der Stadt gegen 150 historische Gebäude aus ganz Schweden, vom samischen Lager bis zum Gutshof, vieles mit Handwerkern in Betrieb. Dazu kommt ein Tierpark mit nordischen Arten wie Elch, Braunbär, Wolf, Luchs und Vielfrass. An Mittsommer und Lucia ist Skansen das inoffizielle Festzentrum des Landes. Für Häuser, Tiere und Aussicht gut einen halben Tag einplanen.",
+   meta:"Djurgården · täglich · Preis saisonabhängig, ca. SEK 220", url:"https://www.skansen.se/"},
+  {cat:"must", sub:"Rathaus des Nobelbanketts", name:"Stadshuset", lat:59.32740, lng:18.05430,
+   note:"Das Rathaus von Ragnar Östberg (1923) aus acht Millionen dunkelroten Ziegeln ist das Wahrzeichen der Stadt und Inbegriff des schwedischen Nationalromantizismus. In der Blauen Halle, die gar nicht blau ist, findet jedes Jahr am 10. Dezember das Nobelbankett statt, darüber glänzt der Goldene Saal mit rund 18 Millionen Goldmosaiksteinchen. Der Innenbesuch geht nur mit Führung, dafür ist der Blick vom 106 Meter hohen Turm mit den drei Kronen der beste über Gamla Stan und Riddarfjärden. Der Garten am Wasser ist frei zugänglich.",
+   meta:"Kungsholmen · Führungen täglich, Turm ca. Mai bis Sep · Turm separat", url:"https://stadshuset.stockholm/"},
+  {cat:"must", sub:"Postkartenblick von der Felskante", name:"Monteliusvägen", lat:59.32000, lng:18.06050,
+   note:"Der schmale Fussweg an der Felskante von Södermalm ist etwa einen halben Kilometer lang und bietet die klassische Stockholm-Postkarte: Riddarfjärden, Stadshuset, Riddarholmen und Gamla Stan in einer Reihe. Am schönsten zur blauen Stunde und bei Sonnenuntergang, dann stehen hier Fotografen mit Stativ neben Leuten mit Take-away-Kaffee. Der Zugang lohnt sich als Spaziergang ab Slussen über die Treppen bei Bastugatan, unterwegs stehen hübsche Holzhäuser aus dem 18. Jahrhundert. Gratis und immer offen.",
+   meta:"Södermalm, oberhalb Söder Mälarstrand · frei zugänglich · Sonnenuntergang einplanen"},
+  {cat:"must", sub:"Fotokunst im Jugendstil-Zollhaus", name:"Fotografiska", lat:59.31780, lng:18.08580,
+   note:"Eines der grössten Fotografie-Häuser der Welt, untergebracht in einem Jugendstil-Zollhaus von Ferdinand Boberg (1906) direkt am Wasser von Stadsgården. Gezeigt werden parallel mehrere Wechselausstellungen von Weltnamen bis zu Entdeckungen, dazu ist das Haus bis spät abends offen und eher Kulturclub als Museum. Das Café im obersten Stock hat einen der besten Ausblicke der Stadt auf Gamla Stan und Djurgården, das Restaurant ist mehrfach ausgezeichnet. Ideal für einen Regen- oder Abendslot.",
+   meta:"Stadsgårdshamnen, Södermalm · täglich bis spät · ca. SEK 200", url:"https://www.fotografiska.com/sto/"},
+  {cat:"must", sub:"Barockes Welterbe im Mälaren", name:"Drottningholm", lat:59.32170, lng:17.88660,
+   note:"Das barocke Schloss auf der Mälaren-Insel Lovön war 1991 Schwedens erstes UNESCO-Welterbe und ist seit 1981 Wohnsitz des Königspaars, ein Flügel bleibt trotzdem zugänglich. Einzigartig ist das Schlosstheater von 1766, dessen hölzerne Bühnenmaschinerie samt Wind- und Donnermaschinen original erhalten ist und im Sommer noch bespielt wird, dazu kommen Barockgarten und das chinesische Lustschloss Kina slott. Am schönsten ist die Anreise per Schiff ab Stadshusbron, rund eine Stunde durch den Mälaren. Guter Halbtagesausflug.",
+   meta:"Lovön, Ekerö · Schiff ab Stadshusbron oder T-bana Brommaplan + Bus · Park gratis", url:"https://www.kungligaslotten.se/"},
+  {cat:"must", sub:"Tor zu 30000 Inseln", name:"Schärengarten ab Strömkajen", lat:59.32940, lng:18.07900,
+   note:"Vor der Stadt liegen rund 30000 Inseln und Schären, und die weissen Schiffe von Waxholmsbolaget fahren ganzjährig ab Strömkajen hinaus, das ist ÖV, kein Touristenprodukt. Für einen Halbtag reicht Vaxholm mit Holzhäusern und Festung (ca. 1 Stunde), für einen Tagesausflug lohnen Grinda, Gällnö oder das mondäne Sandhamn, im Sommer auch mit Badehalt. Wer wenig Zeit hat, nimmt wenigstens die 25 Minuten zu den Fjäderholmarna. Deck-Platz achtern sichern und die Einfahrt zwischen den Inseln geniessen.",
+   meta:"Strömkajen beim Grand Hôtel · ganzjährig, Sommer dichter Takt · Tickets an Bord/App", url:"https://waxholmsbolaget.se/"},
+  {cat:"must", sub:"Längste Kunstgalerie der Welt", name:"Kunst in der Tunnelbana", lat:59.33130, lng:18.06140,
+   note:"Über 90 der rund 100 U-Bahn-Stationen sind künstlerisch gestaltet, das Netz gilt als längste Kunstgalerie der Welt. Die spektakulärsten liegen an der blauen Linie, wo der rohe Fels stehen gelassen und bemalt wurde: T-Centralen mit blauen Ranken, Kungsträdgården als versunkener Barockgarten mit Fundstücken, Solna centrum als glutroter Wald, dazu Rådhuset in Terrakotta. Ein einziges SL-Ticket reicht, einfach an der blauen Linie von Station zu Station hüpfen, am besten ausserhalb der Stosszeiten. Start am einfachsten bei T-Centralen.",
+   meta:"Start T-Centralen, blaue Linie · SL-Einzelticket 75 Min gültig · Abends leerer", url:"https://sl.se/"},
+  // ---------- Kajak ----------
+  {cat:"kayak", sub:"Kajakverleih an der Djurgårdsbron", name:"Sjöcaféet", lat:59.33000, lng:18.09050,
+   note:"Direkt an der Djurgårdsbrücke liegt der zentralste Kajak- und SUP-Verleih der Stadt, dazu gibt es Ruder- und Tretboote. Von hier startet die klassische Einsteigerrunde durch den Djurgårdsbrunnskanal einmal um die Museumsinsel, ruhiges Wasser, Reiher im Schilf, Villen und Eichenwälder am Ufer, gut zwei Stunden. Wer mehr will, paddelt Richtung Waldemarsudde und schaut den Schären-Fähren zu, Abstand zu den Fahrrinnen halten. Im Sommer früh kommen, am Nachmittag ist der Steg gut besucht.",
+   meta:"Galärvarvsvägen 2, beim Brückenkopf · ca. Apr bis Okt · Kajak/SUP stundenweise", url:"https://sjocafeet.se/"},
+  {cat:"kayak", sub:"Die klassische Stadtpaddel-Strecke", name:"Djurgårdsbrunnskanal-Runde", lat:59.33080, lng:18.11250,
+   note:"Der schmale Kanal von 1834 trennt Djurgården vom Festland und ist die schönste Stadt-Paddelstrecke: Alleen, Botschaftsvillen, das Kaknäs-Gelände und kaum Motorboote, weil Tempolimit gilt. Die volle Umrundung von Djurgården misst gut acht Kilometer, mit offenem Wasser an der Ostspitze bei Blockhusudden, wo sich Seeadler zeigen können. Bei Wind aus Ost wird die Aussenseite kabbelig, dann einfach im Kanal hin und zurück. Einkehr am Djurgårdsbrunn mit Steg direkt am Wasser.",
+   meta:"Einstieg z. B. Sjöcaféet oder Djurgårdsbrunn · ca. 2 bis 3 h Runde · geschützt"},
+  {cat:"kayak", sub:"Abendrunde auf dem Riddarfjärden", name:"Kajak ab Långholmen", lat:59.32100, lng:18.02850,
+   note:"Die kleine Insel Långholmen ist grün, autofrei und hat am Westende einen Kajakverleih mit direktem Zugang zum Mälaren. Die kurze Runde führt durch den Pålsundet-Kanal unter alten Brücken um die Insel, die grosse hinaus auf den Riddarfjärden mit Blick auf Stadshuset und Västerbron von unten, das ist abends im Gegenlicht spektakulär. Auf dem offenen Fjärd auf Fahrgastschiffe und deren Wellen achten. Nachher Bad an den Felsen der Insel.",
+   meta:"Långholmen, Westspitze · Sommersaison · Runde 1 bis 3 h je nach Lust"},
+  {cat:"kayak", sub:"Die grosse Stadtumrundung im Kajak", name:"Runde um Södermalm", lat:59.30650, lng:18.05550,
+   note:"Die grosse Stadtrunde einmal um die Insel Södermalm misst gut zwölf Kilometer und zeigt Stockholm komplett vom Wasser: Riddarfjärden, Pålsundet, die stille Årstaviken mit Schrebergärten am Hang und Hammarby sjö mit der neuen Stadt am alten Hafen. Bei der Schleuse Hammarby heisst es kurz warten oder umtragen, dort mischt man sich zwischen Segler und Ausflugsboote. Sportliche schaffen die Runde in drei Stunden, mit Badepausen wird ein Halbtag daraus. Årstaviken allein ist auch die beste Schlechtwetter-Strecke, fast immer ruhig.",
+   meta:"Einstieg Långholmen oder Årstaviken · ca. 12 km · Schleuse Hammarby beachten"},
+  {cat:"kayak", sub:"Stillstes Paddelrevier der Stadt", name:"Brunnsviken & Hagaparken", lat:59.36300, lng:18.05000,
+   note:"Die Brunnsviken ist eine fast geschlossene Bucht im Nationalstadtpark und das entspannteste Paddelrevier der Stadt, kein Seegang, kaum Motorboote. Am Ufer reihen sich die Follies des Hagaparks, Kupferzelte, Echotempel und der Pavillon Gustavs III., auf der Ostseite grüsst das Gelände des botanischen Gartens Bergianska mit dem Victoriahaus. Verleih gibt es im Sommer an mehreren Stegen rund um die Bucht. Ideal für laue Abende, danach Picknick auf den Hagawiesen.",
+   meta:"Nationalstadtpark, zw. Haga und Frescati · Sommer · sehr geschützt, anfängertauglich"},
+  {cat:"kayak", sub:"Nächste Schäreninsel als Paddelziel", name:"Fjäderholmarna", lat:59.31850, lng:18.16100,
+   note:"Die nächstgelegene Schäreninsel liegt nur einen guten Kilometer vor der Ostspitze von Djurgården und ist als Paddelziel perfekt: kurze Querung, dann Felsen, Werkstätten, Räucherfisch und eine eigene Brauerei mit Blick zurück auf die Stadt. Die Querung kreuzt allerdings die Fahrrinne der Ausflugsschiffe, also zügig und im rechten Winkel hinüber, bei starkem Ostwind besser lassen. Wer nicht paddelt, nimmt die Fähre ab Slussen oder Nybroplan, das ist der billigste Schären-Schnupperkurs. Im Sommer Abendrückfahrt vorher checken.",
+   meta:"ca. 25 Min ab Blockhusudden · Sommer belebt · Fahrrinne beachten", url:"https://www.fjaderholmarna.se/"},
+
+  // ---------- Bars ----------
+  {cat:"bar", sub:"Weltklasse-Quartierbar in Hornstull", name:"Tjoget", lat:59.31470, lng:18.03390,
+   note:"Die Quartierbar in Hornstull taucht seit Jahren auf der Liste der World's 50 Best Bars auf und bleibt trotzdem unversnobt: mehrere Räume mit Cocktailbar, Weinecke und Bistro, das Ganze mit mediterran-levantinischem Einschlag. Die Drinks arbeiten viel mit Kräutern, Sherry und selbstgemachten Infusionen, die Karte wechselt thematisch. Am Wochenende voll, früh kommen oder unter der Woche. Danach liegt das Nachtleben von Hornstull direkt vor der Tür.",
+   meta:"Hornsbruksgatan 24, Hornstull · Di bis Sa abends · Cocktails ca. SEK 200", url:"https://tjoget.com/"},
+  {cat:"bar", sub:"Apotheker-Cocktails am Stortorget", name:"Pharmarium", lat:59.32500, lng:18.07050,
+   note:"Am Stortorget, dort wo 1575 Schwedens erste Apotheke eröffnete, mixt das Pharmarium heute Cocktails im Apotheken-Stil: Tinkturen, Bitters und ungewöhnliche Aromen, serviert in dunklem, kleinem Interieur mit Blick auf den Platz. Die Karte erzählt Geschichten zu historischen Heilmitteln, dazu gibt es gute Kleinigkeiten zu essen. Wegen der Grösse besser reservieren. Einer der wenigen Orte in Gamla Stan, der nicht Touristenfalle ist.",
+   meta:"Stortorget 7, Gamla Stan · abends · klein, reservieren", url:"https://www.pharmarium.se/"},
+  {cat:"bar", sub:"Skybar über Södermalm", name:"Himlen", lat:59.31430, lng:18.07220,
+   note:"Zuoberst im Skrapan-Hochhaus an der Götgatan liegt die Skybar Himlen mit Rundblick über ganz Södermalm bis zu den Kirchtürmen der Innenstadt, auf Deutsch heisst der Name passend Himmel. Zum Sonnenuntergang ist die Fensterfront der beste Logenplatz der Stadt, die Cocktails sind solide, das Restaurant eine Preisklasse darüber. Dresscode locker, aber Turnschuhe voller Schlamm sieht man ungern. Reservieren lohnt sich, sonst bleibt nur die Bar-Warteliste.",
+   meta:"Götgatan 78, 25. Stock · Di bis Sa · Aussicht gratis zum Drink", url:"https://restauranghimlen.se/"},
+  {cat:"bar", sub:"Schwedens berühmteste Bierkneipe", name:"Akkurat", lat:59.31930, lng:18.06640,
+   note:"Schwedens berühmteste Bierkneipe: riesige Auswahl an belgischen Lambics und Trappisten, dazu die halbe schwedische Craft-Szene vom Fass und eine Whiskywand mit mehreren hundert Flaschen. Das Ambiente ist unaufgeregte Beiz, das Publikum reicht von Bier-Nerds bis Quartierstammtisch, die Muscheln mit Frites sind der klassische Teller dazu. Wer nicht weiterweiss, lässt sich vom Personal durch die Karte lotsen, die wissen wirklich alles. Nahe Slussen und Mariatorget.",
+   meta:"Hornsgatan 18, Södermalm · täglich abends · Bierkarte fragen", url:"https://akkurat.se/"},
+  {cat:"bar", sub:"Bierhalle von 1908", name:"Kvarnen", lat:59.31490, lng:18.07300,
+   note:"Die Bierhalle von 1908 mit hohen Decken und dunklem Holz ist eine Södermalm-Institution und Stammlokal der Hammarby-Fussballfans, vor Heimspielen ist grün-weisses Fahnenmeer. Sonst gibt es klassische schwedische Hausmannskost wie Köttbullar und gebeizten Lachs zu fairen Preisen, später am Abend wird aus der Halle eine laute, fröhliche Kneipe mit Schlange vor der Tür. Wer das alte Stockholm der Arbeiterquartiere spüren will, ist hier richtig. Auch tagsüber fürs Essen gut.",
+   meta:"Tjärhovsgatan 4, Medborgarplatsen · täglich · an Spieltagen sehr voll", url:"https://kvarnen.com/"},
+  {cat:"bar", sub:"Taproom der Kultbrauerei", name:"Omnipollos Hatt", lat:59.31800, lng:18.07270,
+   note:"Der Taproom der Kultbrauerei Omnipollo schenkt deren verspielte Biere aus, von Smoothie-Sours bis zu schweren Stouts, dazu gibt es Pizza als Slice direkt aus dem Steinofen. Klein, bunt, laut und meistens voll, man teilt sich Tische und probiert sich durch die Tafel, die ständig wechselt. Softeis auf dem Bier ist hier kein Witz, sondern Spezialität. Perfekter erster oder letzter Halt beim Slussen-Streifzug.",
+   meta:"Hökens gata 1, beim Slussen · täglich · klein, oft Wartezeit", url:"https://omnipolloshatt.com/"},
+  {cat:"bar", sub:"Strindbergs Aussichtsterrasse", name:"Mosebacketerrassen", lat:59.31810, lng:18.07570,
+   note:"Die Sommerterrasse des Södra Teatern auf der Anhöhe Mosebacke ist seit über hundert Jahren der Balkon von Södermalm, mit Blick über Hafeneinfahrt und Djurgården. Genau diese Aussicht beschreibt Strindberg auf der ersten Seite seines Romans Das rote Zimmer. Heute gibt es Bier in Plastikbechern, lange Holztische, DJs und Konzerte, an warmen Abenden ist halb Söder hier oben. Drinnen im Theater geht das Programm ganzjährig weiter.",
+   meta:"Mosebacke torg · ca. Mai bis Sep bei gutem Wetter · Eintritt meist frei", url:"https://sodrateatern.com/"},
+  {cat:"bar", sub:"Open-Air-Club unter der Brücke", name:"Trädgården / Under bron", lat:59.30530, lng:18.07400,
+   note:"Unter der Skanstull-Brücke liegt Stockholms bekanntester Open-Air-Club: im Sommer als Trädgården mit Bars, Boule, Pingpong, Foodständen und Dancefloors unter freiem Himmel, im Winter als Under bron in kleinerer, düsterer Version. Das Line-up reicht von lokalem House bis zu internationalen Namen, das Publikum ist gemischt und die Schlange ab später Stunde lang. Früh hingehen und den Abend dort durchziehen ist die beste Taktik. Sicherheitshalber Ausweis mitnehmen.",
+   meta:"Hammarby slussväg 2, unter der Brücke · Sommer Mi bis Sa · Eintritt je nach Abend", url:"https://tradgarden.com/"},
+  {cat:"bar", sub:"Indie-Institution von SoFo", name:"Pet Sounds Bar", lat:59.31300, lng:18.08100,
+   note:"Der Ableger des gleichnamigen Plattenladens ist die Indie-Institution von SoFo: oben Bar und solides Essen, unten im Keller DJs, kleine Konzerte und ein Publikum, das Musik ernster nimmt als Dresscodes. Die Jukebox-Stimmung reicht von Postpunk bis Soul, am Wochenende wird es eng und verschwitzt. Der Plattenladen schräg gegenüber an der Skånegatan lohnt den Besuch gleich mit. Guter Anker für einen SoFo-Abend.",
+   meta:"Skånegatan 80, SoFo · abends, Keller Do bis Sa · Konzerte teils mit Eintritt", url:"https://www.petsoundsbar.se/"},
+  // ---------- Museen ----------
+  {cat:"mus", sub:"Moderne Kunst auf Skeppsholmen", name:"Moderna Museet", lat:59.32610, lng:18.08450,
+   note:"Auf der stillen Insel Skeppsholmen zeigt das Moderna eine der besten Sammlungen moderner Kunst in Europa: Picasso, Matisse, Duchamp, Rauschenbergs ausgestopfte Ziege Monogram und die bunten Nanas von Niki de Saint Phalle, untergebracht in einem zurückhaltenden Bau von Rafael Moneo. Die Wechselausstellungen sind regelmässig hochkarätig, das Café hat Blick über das Wasser auf Djurgården. Draussen stehen Skulpturen von Calder und die Paradiesgruppe von Saint Phalle und Tinguely am Ufer. Gut kombinierbar mit ArkDes im selben Gebäudekomplex.",
+   meta:"Skeppsholmen · Di bis So · Sammlung teils gratis, Wechselausstellungen kostenpflichtig", url:"https://www.modernamuseet.se/"},
+  {cat:"mus", sub:"Schwedens grösstes Kunstmuseum", name:"Nationalmuseum", lat:59.32880, lng:18.07840,
+   note:"Schwedens grösstes Kunstmuseum residiert seit 1866 am Wasser gegenüber dem Schloss und wurde 2018 nach fünfjähriger Renovation glanzvoll wiedereröffnet. Neben Rembrandt, Rubens und den französischen Impressionisten hängt hier die nationale Ikonensammlung von Carl Larsson bis Anders Zorn, dazu kommt die beste Übersicht über schwedisches Design vom Jugendstil bis heute. Die Räume sind farbig, dicht und modern gehängt, das Haus wirkt jünger als sein Alter. Restaurant mit Design-Klassikern als Mobiliar.",
+   meta:"Södra Blasieholmshamnen · Di bis So · Eintritt je nach Ausstellung", url:"https://www.nationalmuseum.se/"},
+  {cat:"mus", sub:"Kulturgeschichte im Prachtbau", name:"Nordiska Museet", lat:59.32990, lng:18.09000,
+   note:"Der kathedralenartige Prachtbau von Isak Gustaf Clason (1907) auf Djurgården ist Schwedens grosses Kulturgeschichtsmuseum: Wohnen, Essen, Feste, Mode und Alltag seit dem 16. Jahrhundert, dazu eine ständige Ausstellung zur Kultur der Sami. In der riesigen Halle thront Carl Milles' monumentale Holzstatue von Gustav Vasa. Die Themenräume zu Trachten, Tischsitten und Volksbräuchen erklären nebenbei, warum Schweden ist, wie es ist. Schon das Treppenhaus lohnt den Eintritt.",
+   meta:"Djurgårdsvägen 6 · täglich ausser Mo im Winter · Kinder gratis", url:"https://www.nordiskamuseet.se/"},
+  {cat:"mus", sub:"Wikinger und der Goldsaal", name:"Historiska Museet", lat:59.33460, lng:18.08900,
+   note:"Das Geschichtsmuseum beherbergt im unterirdischen Goldsaal einen Tresorraum mit rund 3000 Goldobjekten von der Bronzezeit bis zu den Wikingern, darunter die berühmten Goldkragen aus dem 5. Jahrhundert. Oben erzählen Runensteine, Schiffsfunde und Alltagsobjekte die Wikingerzeit deutlich differenzierter als jedes Klischee, dazu kommt mittelalterliche Kirchenkunst aus dem ganzen Land. Ruhiger als die Djurgården-Museen und meist ohne Anstehen. Der Innenhof ist im Sommer ein hübscher Kaffeehalt.",
+   meta:"Narvavägen 13, Östermalm · Di bis So · Eintritt frei bis moderat", url:"https://historiska.se/"},
+  {cat:"mus", sub:"Villa des Malerprinzen", name:"Prins Eugens Waldemarsudde", lat:59.31850, lng:18.09960,
+   note:"Prinz Eugen, der jüngste Sohn König Oskars II., verzichtete auf Karriere und wurde stattdessen einer der besten Landschaftsmaler des Landes; seine Jugendstil-Villa an der Südspitze Djurgårdens ist heute Kunstmuseum. Gezeigt werden seine eigenen stimmungsvollen Bilder, seine Sammlung nordischer Kollegen wie Munch und Zorn sowie Wechselausstellungen. Der Garten mit alten Eichen, Skulpturen, Windmühle und Blick auf die Hafeneinfahrt ist allein den Weg wert. Einer der friedlichsten Orte der Stadt.",
+   meta:"Prins Eugens väg 6, Djurgården · Di bis So · Garten frei zugänglich", url:"https://waldemarsudde.se/"},
+  {cat:"mus", sub:"Munch-Sammlung am Inselende", name:"Thielska Galleriet", lat:59.32510, lng:18.12440,
+   note:"Der Bankier Ernest Thiel liess sich um 1905 am äussersten Ende von Djurgården eine Villa als privates Museum bauen und kaufte, was die nordische Moderne hergab, bevor er in der Krise alles an den Staat verlor. Heute hängen hier Munch in ganzen Wänden, Carl Larsson, Bruno Liljefors und ein ganzer Saal zu Nietzsche samt dessen Totenmaske, Thiel war glühender Verehrer. Abgelegen, still und oft fast leer, mit Skulpturengarten und Wasserblick. Mit dem Bus 67 oder als Spaziergang durch die Djurgården-Wälder erreichbar.",
+   meta:"Sjötullsbacken 8, Djurgården · Di bis So · Bus 67 bis Endstation", url:"https://thielskagalleriet.se/"},
+  {cat:"mus", sub:"Skulpturengarten über dem Sund", name:"Millesgården", lat:59.35840, lng:18.11900,
+   note:"Wohnhaus und Atelier des Bildhauers Carl Milles auf einer Felsterrasse hoch über dem Wasser auf Lidingö, von ihm und seiner Frau Olga ab 1908 selbst angelegt. Auf den Terrassen tanzen seine Bronzen, Engel und Fontänenfiguren vor freiem Himmel, mit Blick über den Värtan-Sund, dazu kommen Antikensammlung und eine Kunsthalle mit Wechselausstellungen. Gerade bei klarem Wetter einer der fotogensten Orte Stockholms. Anreise mit der Lidingöbahn bis Torsvik oder Bus ab Ropsten.",
+   meta:"Herserudsvägen 32, Lidingö · Di bis So, Sommer täglich · Garten inklusive", url:"https://www.millesgarden.se/"},
+  {cat:"mus", sub:"Ostsee-Wracks, digital gehoben", name:"Vrak, Museum of Wrecks", lat:59.32900, lng:18.09300,
+   note:"Die Ostsee ist wegen Brackwasser ohne Schiffsbohrwurm der beste Wrack-Konservator der Welt, vor Stockholm liegen tausende hölzerne Wracks intakt in der Tiefe. Das Museum neben dem Vasamuseet lässt sie dort unten und holt sie stattdessen digital herauf: Tauchfahrten, 3D-Modelle und Originalfunde erzählen von Kriegsschiffen, Fähren und Alltagsseefahrt. Unaufgeregt gemacht und deutlich ruhiger als der grosse Nachbar. Gut als Ergänzung, wenn einen die Vasa gepackt hat.",
+   meta:"Djurgårdsstrand 17 · täglich im Sommer, sonst Di bis So", url:"https://www.vrak.se/"},
+  {cat:"mus", sub:"Schwedens Verhältnis zum Schnaps", name:"Spritmuseum", lat:59.32550, lng:18.08900,
+   note:"In den letzten erhaltenen Marinewerft-Gebäuden auf Djurgården erklärt das Spritmuseum die schwedische Beziehung zum Alkohol, von Schnapsliedern und Kräuter-Aquavit bis zur staatlichen Rationierung mit dem Motbok-Heftchen. Dazu gehört die Absolut Art Collection, für die Warhol, Haring und andere die berühmte Flasche interpretierten. Im Preis kann ein Degustationstablett dazugebucht werden, das die Theorie praktisch untermauert. Klein, witzig und erwachsener als der Name vermuten lässt.",
+   meta:"Djurgårdsvägen 38 · täglich · Degustation optional", url:"https://spritmuseum.se/"},
+  {cat:"mus", sub:"Popgeschichte zum Mitsingen", name:"ABBA The Museum", lat:59.32430, lng:18.09660,
+   note:"Interaktives Popmuseum, in dem man mit ABBA-Hologrammen auf der Bühne steht, im Nachbau des Polar-Studios singt und Bennys Klavier zuschaut, das ferngesteuert spielt, wenn Benny zuhause in die Tasten greift. Originalkostüme, Goldplatten und das Helikopter-Cover von Arrival sind alle da, die Selbstironie zum Glück auch. Teuer und voll, aber für Fans Pflicht und für alle anderen erstaunlich unterhaltsam. Tickets online im Voraus sind meist günstiger.",
+   meta:"Djurgårdsvägen 68 · täglich · ca. SEK 250, online buchen", url:"https://abbathemuseum.com/"},
+
+  // ---------- Alternativ ----------
+  {cat:"alt", sub:"Dorfplatz des kreativen Söder", name:"SoFo & Nytorget", lat:59.31350, lng:18.08000,
+   note:"Das Quartier südlich der Folkungagatan, kurz SoFo, ist das Laden- und Caféviertel von Södermalm: unabhängige Boutiquen, Vintage, Platten, Brunchlokale und am Nytorget eine Wiese, auf der halb Söder den Sonntag verbringt. Hier funktioniert Stockholm am ehesten wie ein Dorf, alles zu Fuss, alle draussen, sobald die Sonne scheint. Gute Achse: Skånegatan entlang, um den Nytorget, dann Bondegatan zurück. Viele Läden öffnen erst gegen Mittag.",
+   meta:"Södermalm, südlich Folkungagatan · Läden ca. 11 bis 18 Uhr · So vieles offen"},
+  {cat:"alt", sub:"Graffiti-Mekka im Industriequartier", name:"Snösätra Wall of Fame", lat:59.25900, lng:18.03450,
+   note:"Im Industriequartier Snösätra bei Rågsved liegt eines der grössten Graffiti-Gebiete Europas: hunderte Meter Hallenwände voller Pieces, die ständig übermalt werden, dazu das jährliche Spring-Beast-Festival mit Künstlern aus der ganzen Welt. Die Stadt hat Teile des Geländes bereits abgerissen und die Zukunft ist ungewiss, also hingehen, solange es die Wände noch gibt. Mit der grünen Linie bis Rågsved, dann zehn Minuten Richtung Naturreservat. Werktags hat man das Gelände oft für sich.",
+   meta:"Snösätragränd, Rågsved · frei zugänglich · Stand der Abrisspläne vorher checken"},
+  {cat:"alt", sub:"Kunsthalle in der Farbenfabrik", name:"Färgfabriken", lat:59.31220, lng:18.01400,
+   note:"In einer ehemaligen Farbenfabrik von 1889 in Liljeholmen experimentiert die Kunsthalle Färgfabriken an der Schnittstelle von Kunst, Architektur und Stadtplanung, oft mit grossen rauminstallativen Projekten, die sonst niemand zeigt. Dazu gibt es Talks, Clubabende und ein Sommercafé am Wasser mit Blick zurück auf Södermalm. Das umliegende Lövholmen ist eine der letzten Industriebrachen der Innenstadt und wird gerade überbaut, der rohe Charme ist also endlich. Kombinierbar mit einem Spaziergang nach Hornstull über die Brücke.",
+   meta:"Lövholmsbrinken 1, Liljeholmen · Do bis So · Programm vorab prüfen", url:"https://fargfabriken.se/"},
+  {cat:"alt", sub:"Kunst in der Zentralwäscherei", name:"Konsthall C, Hökarängen", lat:59.26100, lng:18.08300,
+   note:"In der ehemaligen Zentralwäscherei eines 40er-Jahre-Wohnquartiers in Hökarängen arbeitet die Konsthall C an gesellschaftlichen Fragen, oft zusammen mit der Nachbarschaft, das Waschsalon-Erbe ist Teil des Konzepts. Hökarängen selbst ist eine der charmantesten Vorort-Zeitkapseln der Stadt: eine der ersten Fussgängerstrassen Schwedens, Konditoreien und kleine Läden, gefördert günstige Ateliers. Wer das andere, unpolierte Stockholm sehen will, fährt die 20 Minuten mit der grünen Linie hinaus. Danach weiter nach Farsta strand am See.",
+   meta:"Cigarrvägen 14, Hökarängen · Do bis So · T-bana Hökarängen", url:"https://konsthallc.se/"},
+  {cat:"alt", sub:"Ausgehen im alten Arbeiterquartier", name:"Midsommarkransen", lat:59.30180, lng:18.01250,
+   note:"Das frühere Arbeiterquartier um die Telefonfabrik von LM Ericsson ist heute das entspannteste Ausgehviertel ausserhalb von Söder: Funkis-Häuser aus den 40ern, Quartierkneipen, Naturwein und Cafés rund um die Svandammsvägen und den kleinen Svandammspark. Das riesige Ericsson-Fabrikareal mit seinem Turm wird schrittweise umgenutzt und füllt sich mit Ateliers und Lokalen. Kein einzelnes Highlight, sondern ein Abend unter Einheimischen. Zwei T-bana-Stationen von Hornstull.",
+   meta:"T-bana Midsommarkransen, rote Linie · abends am lebhaftesten"},
+
+  // ---------- Random Sights ----------
+  {cat:"rnd", sub:"Die schmalste Gasse der Stadt", name:"Mårten Trotzigs Gränd", lat:59.32290, lng:18.07090,
+   note:"Die schmalste Gasse der Stadt misst an der engsten Stelle 90 Zentimeter und quetscht sich mit 36 Stufen zwischen zwei Häuserzeilen von der Västerlånggatan hinauf zur Prästgatan. Benannt ist sie nach einem deutschen Kaufmann, der 1581 einwanderte und hier Häuser besass. Tagsüber Foto-Hotspot, abends im Laternenlicht am stimmungsvollsten. Oben gleich links liegt die stillste Ecke der Prästgatan.",
+   meta:"Gamla Stan, zw. Västerlånggatan 81 und Prästgatan · immer offen"},
+  {cat:"rnd", sub:"Das kleinste Denkmal der Stadt", name:"Järnpojke", lat:59.32530, lng:18.07300,
+   note:"Im Hof hinter der Finnischen Kirche sitzt das kleinste öffentliche Denkmal der Stadt: ein 15 Zentimeter kleiner Eisenjunge, der die Knie umschlingt und zum Mond schaut, von Liss Eriksson 1967 geschaffen. Die Stockholmer bringen ihm Münzen und im Winter strickt ihm regelmässig jemand Mützchen und Schal. Wer ihm den Kopf streichelt, hat angeblich Glück, entsprechend blank poliert ist er. Leicht zu übersehen, genau das ist der Witz.",
+   meta:"Trädgårdsgatan, Hof der Finnischen Kirche, Gamla Stan · immer zugänglich"},
+  {cat:"rnd", sub:"Höchster Fels der Innenstadt", name:"Skinnarviksberget", lat:59.31970, lng:18.04980,
+   note:"Der höchste natürliche Punkt der Innenstadt ist ein blanker Felsrücken auf Södermalm, 53 Meter über dem Wasser, ohne Geländer, ohne Kiosk, dafür mit weitem Blick auf Stadshuset, Kungsholmen und den Riddarfjärden. An Sommerabenden verteilen sich Grüppchen mit mitgebrachtem Picknick über den Fels, es ist der demokratischste Sonnenuntergangsplatz der Stadt. Festes Schuhwerk hilft, der Granit ist glatt geschliffen. Kombinierbar mit Monteliusvägen, der liegt zehn Gehminuten östlich.",
+   meta:"oberhalb Münchenbryggeriet, Södermalm · frei · Picknick mitnehmen"},
+  {cat:"rnd", sub:"Stockholms Balkon", name:"Fjällgatan", lat:59.31750, lng:18.08850,
+   note:"Die kurze Strasse an der Felskante von Söder wird seit je Stockholms Balkon genannt: auf der einen Seite Holzhäuschen aus dem 18. Jahrhundert, auf der anderen der Blick über Hafen, Gamla Stan, Skeppsholmen und Djurgården. Morgens halten hier die Reisebusse, danach gehört die Aussicht wieder den Anwohnern und dem kleinen Sommercafé. Die Ecke gehört zu den letzten erhaltenen Resten des alten, ärmlichen Holz-Söder. Weiterlaufen zur parallelen Stigbergsgatan lohnt sich.",
+   meta:"Fjällgatan, oberhalb Stadsgården · frei · vormittags Busgruppen"},
+  {cat:"rnd", sub:"Aussichtslift von 1883", name:"Katarinahissen & Slussen", lat:59.32000, lng:18.07330,
+   note:"Der eiserne Personenaufzug von Slussen hinauf nach Mosebacke stammt in erster Version von 1883 und ist nach langer Renovation seit 2023 wieder in Betrieb, die Fahrt ist gratis. Oben wartet die klassische Aussicht über das neu gebaute Slussen mit der goldenen Brücke, Gamla Stan und die Einfahrt zum Mälaren, dazu das wiedereröffnete Restaurant Gondolen im Ausleger. Das ganze Slussen-Areal war zwanzig Jahre Baustelle und ist als Stadtumbau selbst eine Besichtigung wert. Abends schön beleuchtet.",
+   meta:"Slussen, Södermalm · Lift täglich, gratis · oben Verbindung zur Mosebacke"},
+  {cat:"rnd", sub:"Badeinsel mit Knastvergangenheit", name:"Långholmen", lat:59.32180, lng:18.03450,
+   note:"Die grüne Insel im Mälaren war bis 1975 Gefängnisinsel, im alten Kronohäkte übernachtet man heute im Hostel in Zellen oder besucht das kleine Gefängnismuseum. Drumherum: Felsen und eine kleine Badebucht mit Sandstrand, im Sommer badet hier halb Kungsholmen gegenüber, dazu Spazierwege unter der mächtigen Västerbron hindurch. Die Mischung aus Knastgeschichte, Badeidylle und Brückenblick gibt es so nur hier. Im Juli früh kommen, der Strand ist klein.",
+   meta:"Långholmen · frei zugänglich · Bad Juni bis August"},
+  {cat:"rnd", sub:"Abendterrasse auf der Ritterinsel", name:"Evert Taubes Terrass", lat:59.32470, lng:18.06300,
+   note:"Die kleine Ritterinsel neben Gamla Stan ist abends fast menschenleer: Adelspaläste aus der Grossmachtzeit, die Riddarholmskyrkan mit ihrem gusseisernen Turm als Grabkirche der schwedischen Könige seit dem Mittelalter, und an der Westkante die Terrasse mit Blick über den Riddarfjärden. Hierhin verirren sich wenige, dabei ist es der beste Sonnenuntergang auf Augenhöhe mit dem Wasser. Die Statue zeigt Evert Taube, den Troubadour der Schären. Nachts sind die beleuchteten Fassaden von Stadshuset gegenüber die Show.",
+   meta:"Riddarholmen · frei · Kirche im Sommer zu besichtigen"},
+  // ---------- Design & Architektur ----------
+  {cat:"des", sub:"Welterbe-Waldfriedhof von Asplund", name:"Skogskyrkogården", lat:59.27700, lng:18.09650,
+   note:"Der Waldfriedhof von Gunnar Asplund und Sigurd Lewerentz, ab 1917 in einen Kiefernwald gelegt, ist UNESCO-Welterbe und einer der einflussreichsten Landschaftsentwürfe des 20. Jahrhunderts. Statt Monumenten inszeniert er Weg, Wald und Licht: der Hügel mit dem Meditationshain, das grosse Granitkreuz, Asplunds Waldkapelle und das Krematorium als Höhepunkte einer bewusst choreografierten Abfolge. Greta Garbo liegt hier begraben. Es ist ein aktiver Friedhof, also leise unterwegs sein; die grüne Linie hält direkt am Eingang.",
+   meta:"T-bana Skogskyrkogården · täglich, gratis · Besucherzentrum Sommer", url:"https://skogskyrkogarden.stockholm.se/"},
+  {cat:"des", sub:"Asplunds Bücherzylinder", name:"Stadsbiblioteket", lat:59.34340, lng:18.05480,
+   note:"Gunnar Asplunds Stadtbibliothek von 1928 mit ihrem orangen Zylinder über dem Kubus ist die Ikone des schwedischen Klassizismus an der Schwelle zum Funktionalismus. Innen steht man in der komplett mit Büchern ausgekleideten Rotunde, einem der schönsten Lesesäle überhaupt, Eintritt frei, es ist schlicht eine öffentliche Bibliothek. Wegen der geplanten Gesamtsanierung vor dem Besuch kurz prüfen, ob die Rotunde zugänglich ist. Die Ladenzeile im Sockel und der Park am Observatorielunden gehören zum Ensemble.",
+   meta:"Sveavägen 73, Odenplan · Mo bis So, gratis · Sanierungsstand vorab checken", url:"https://biblioteket.stockholm.se/"},
+  {cat:"des", sub:"Nationales Architekturzentrum", name:"ArkDes", lat:59.32570, lng:18.08400,
+   note:"Schwedens Zentrum für Architektur und Design teilt sich den Moneo-Bau mit dem Moderna Museet und zeigt neben Wechselausstellungen die nationale Sammlung mit Modellen von Asplund bis heute. Gut kuratierte Schauen zu Wohnen, Stadtplanung und Gestaltungspolitik, oft mit Blick auf die Frage, warum Schweden Design als Wohlfahrtsthema versteht. Ideal, um danach mit anderen Augen durch die Stadt zu laufen. Zusammen mit Moderna ein voller Halbtag auf Skeppsholmen.",
+   meta:"Exercisplan 4, Skeppsholmen · Di bis So", url:"https://arkdes.se/"},
+  {cat:"des", sub:"Gesamtkunstwerk des schwedischen Designs", name:"Svenskt Tenn", lat:59.33220, lng:18.07850,
+   note:"Das 1924 von Estrid Ericson gegründete Einrichtungshaus an der Strandvägen ist das Gesamtkunstwerk des schwedischen Designs: Josef Franks überbordende Blumenprints und Möbel werden hier seit den 30ern produziert und verkauft, der Laden ist gleichzeitig begehbares Museum mit wechselnden Inszenierungen. Kaufen muss man nichts, schauen ist ausdrücklich erwünscht, kleine Dinge wie Tabletts oder Stoffmeter sind das realistische Souvenir. Im Teesalon oben lässt sich der Frank-Kosmos bei Gebäck vertiefen. Danach die Strandvägen-Prachtfassaden entlangflanieren.",
+   meta:"Strandvägen 5 · Mo bis Sa · Teesalon reservieren", url:"https://www.svenskttenn.com/"},
+  {cat:"des", sub:"Betontürme von OMA", name:"Norra Tornen", lat:59.34370, lng:18.03400,
+   note:"Die beiden Wohntürme von OMA/Reinier de Graaf (2018-2020) sind mit 125 und 110 Metern die höchsten Wohnhäuser der Innenstadt und ihr auffälligster Neuzugang: gerasterte, vorfabrizierte Betonmodule mit tiefen Loggien, die je nach Licht brutalistisch oder verspielt wirken. Sie markieren Hagastaden, das komplett neue Quartier über den Bahngleisen zwischen Vasastan und Solna. Am besten von der Torsplan-Seite und aus einiger Distanz von der Solnabron anschauen. Streitobjekt der Stadt, genau deshalb sehenswert.",
+   meta:"Torsplan, Hagastaden · Aussenbesichtigung · abends beleuchtet"},
+  {cat:"des", sub:"Blauer Tempel der Nobelpreise", name:"Konserthuset", lat:59.33520, lng:18.06330,
+   note:"Ivar Tengboms tiefblauer Tempel am Hötorget (1926) ist Hauptsitz der Königlichen Philharmoniker und der Ort, an dem jedes Jahr die Nobelpreise überreicht werden. Die zehn schlanken Säulen vor der blauen Fassade sind eines der meistfotografierten Motive der Stadt, davor sprudelt Carl Milles' Orpheusbrunnen. Innen lohnen Konzerte schon wegen des Grosser-Saal-Interieurs, Führungen gibt es punktuell. Der Kontrast zum Marktgewusel auf dem Hötorget direkt davor gehört dazu.",
+   meta:"Hötorget · Konzerte ganzjährig · Führungen saisonal", url:"https://www.konserthuset.se/"},
+  {cat:"des", sub:"Brutalistisches Stadtherz", name:"Sergels Torg & Kulturhuset", lat:59.33230, lng:18.06480,
+   note:"Das Herz des in den 60ern radikal abgeräumten und neu gebauten City-Zentrums: die abgesenkte Platte mit dem schwarz-weissen Dreiecksmuster, der Superellipsen-Kreisel mit der 37 Meter hohen Glassäule von Edvin Öhrström und dahinter Peter Celsings Kulturhuset von 1974, ein Glaspalast als demokratisches Wohnzimmer der Stadt. Drinnen Bibliotheken, Bühnen, Galerien und Cafés mit Blick auf das Treiben. Brutalismus-Fans pilgern hierher, alle anderen lernen das Ensemble meist beim zweiten Besuch lieben. Abends leuchtet die Säule.",
+   meta:"Sergels torg · Kulturhuset täglich · Eintritt Haus gratis", url:"https://kulturhusetstadsteatern.se/"},
+  {cat:"des", sub:"Lewerentz' Ziegel-Meisterwerk", name:"Markuskyrkan", lat:59.29170, lng:18.11550,
+   note:"Sigurd Lewerentz baute die Markuskirche (1960) im Birkenhain von Björkhagen kompromisslos aus dunklem Ziegel, keine geschnittenen Steine, breite Fugen, dazu frei im Raum liegende Leitungen und ein Licht, das durch wenige tiefe Öffnungen fällt. Für Architekturleute weltweit ein Wallfahrtsort der Ziegel-Moderne, für alle anderen ein erstaunlich stiller, kraftvoller Raum. Zugänglichkeit ausserhalb der Gottesdienste variiert, die Aussenanlage im Birkenwald trägt den Besuch auch so. Mit der grünen Linie nach Björkhagen, fünf Minuten zu Fuss.",
+   meta:"Malmövägen, Björkhagen · Aussen jederzeit · Innen je nach Öffnung"},
+  {cat:"des", sub:"Grösstes Kugelgebäude der Welt", name:"Avicii Arena (Globen)", lat:59.29350, lng:18.08330,
+   note:"Die 1989 eröffnete Kugel ist mit 110 Metern Durchmesser das grösste sphärische Gebäude der Welt und seit 2021 nach Avicii benannt, als Denkmal und Plattform für mentale Gesundheit junger Menschen. Nebenbei spielt sie die Sonne im Sweden Solar System, dem grössten Massstabsmodell des Sonnensystems der Welt (1:20 Millionen), dessen Planeten über das ganze Land verteilt sind. Konzerte und Eishockey füllen die Halle, von aussen wirkt sie vom Globen-Vorplatz am besten. Kombinierbar mit einem Match von Djurgården oder AIK.",
+   meta:"Globentorget, Johanneshov · Aussen frei · Events via Ticket", url:"https://aviciiarena.se/"},
+
+  // ---------- Secondhand & Brocki ----------
+  {cat:"second", sub:"Die Brockenstube der Stadtmission", name:"Stadsmissionen Second Hand", lat:59.31750, lng:18.06050,
+   note:"Die Stockholmer Stadtmission betreibt mehrere Secondhand-Läden, deren Erlös direkt in die Sozialarbeit fliesst, das hiesige Pendant zur Brockenstube. Der Laden an der Hornsgatan ist gut sortiert mit Kleidern, Geschirr, Büchern und Kleinmöbeln, die Preise sind fair und die Qualität wird vorsortiert. Wer Glück hat, findet schwedisches Design-Geschirr wie Rörstrand oder Gustavsberg im Regal. Die weiteren Filialen der Stadtmission stehen auf der Website.",
+   meta:"Hornsgatan, Nähe Mariatorget · Mo bis Sa · Erlös für Sozialarbeit", url:"https://www.stadsmissionen.se/"},
+  {cat:"second", sub:"Brocki-Kette der Heilsarmee", name:"Myrorna, Götgatan", lat:59.31250, lng:18.07450,
+   note:"Myrorna ist die Secondhand-Kette der Heilsarmee und Schwedens grösste, der Laden an der Götgatan ihr bekanntester in der Innenstadt, über mehrere Etagen mit Mode, Hausrat, Möbeln und einer eigenen Vintage-Auswahl. Hier kauft ganz Söder, entsprechend schnell dreht die Ware, es lohnt sich, öfter vorbeizuschauen. Gute Chance auf Klassiker wie Stringregale, Emaille und 70er-Keramik zu vernünftigen Preisen. Echtes Brocki-Gefühl mit Grossstadt-Umschlag.",
+   meta:"Götgatan, Södermalm · Mo bis So · Ware wechselt täglich", url:"https://www.myrorna.se/"},
+  {cat:"second", sub:"Kuratierte Vintage-Halle", name:"Beyond Retro, Åsögatan", lat:59.31340, lng:18.08380,
+   note:"Der grosse Vintage-Laden in SoFo ist eine Halle voller kuratierter Mode von den 60ern bis in die 2000er, sortiert nach Stilen und Farben statt nach Zufall, entsprechend leicht lässt sich gezielt suchen. Von Jeansjacken über Slips-Kleider bis zu Cowboystiefeln ist die Auswahl riesig, die Preise liegen über dem Brocki-Niveau, dafür ist alles tragbar aufbereitet. Regelmässig Kilo-Sales beachten. Zweite, kleinere Filiale an der Drottninggatan in der City.",
+   meta:"Åsögatan 144, SoFo · Mo bis So", url:"https://www.beyondretro.com/"},
+  {cat:"second", sub:"Designer-Secondhand seit Jahrzehnten", name:"Judits & Herr Judit", lat:59.31700, lng:18.05700,
+   note:"Judits ist seit Jahrzehnten die Adresse für Designer-Secondhand in Stockholm: geprüfte Stücke von skandinavischen und internationalen Labels, dazu Taschen und Accessoires, alles handverlesen statt Wühltisch. Ein paar Häuser weiter kleidet Herr Judit die Männer ein, von Tweed bis Archiv-Streetwear. Preislich über den Wohltätigkeits-Läden, qualitativ eine andere Liga. Perfekt kombinierbar mit dem Stadsmissionen-Laden an derselben Strasse.",
+   meta:"Hornsgatan 65 und 75, Södermalm · Di bis Sa"},
+  {cat:"second", sub:"Winzige Vintage-Legende", name:"Lisa Larssons Second Hand", lat:59.31280, lng:18.08150,
+   note:"Winziger, legendärer Vintage-Laden an der Bondegatan, spezialisiert auf Kleider und Accessoires der 50er bis 70er, vieles in Museumszustand, dazu Schmuck und Hüte. Die Besitzerin, nicht zu verwechseln mit der Keramikerin gleichen Namens, kennt zu vielen Stücken die Geschichte. Wer für ein Fest oder Mittsommer ein echtes Vintagekleid sucht, wird hier am ehesten fündig. Öffnungszeiten sind eigenwillig, Nachmittage sind die sicherste Wette.",
+   meta:"Bondegatan 48, SoFo · Nachmittage, unregelmässig"},
+  {cat:"second", sub:"Günstige Mode zum Durchgraben", name:"Humana Second Hand", lat:59.31650, lng:18.06150,
+   note:"Die Läden der Kette Humana sind auf günstige Mode ausgerichtet, mit schnellem Warenumschlag und regelmässigen Rabatt-Tagen, an denen ganze Farbetiketten reduziert werden. Zwischen Alltagsware stecken immer wieder 80er- und 90er-Perlen, wer Zeit zum Graben mitbringt, wird belohnt. Der Erlös finanziert Entwicklungsprojekte. Guter Zwischenhalt beim Secondhand-Spaziergang zwischen Mariatorget und Hornsgatan.",
+   meta:"Timmermansgatan, Nähe Mariatorget · Mo bis Sa", url:"https://humanasecondhand.se/"},
+  {cat:"second", sub:"Solidarisches Brocki beim Slussen", name:"Emmaus Stockholm", lat:59.31720, lng:18.07180,
+   note:"Emmaus nahe Slussen verbindet Secondhand mit Solidaritätsarbeit, der Erlös geht in internationale Projekte. Das Sortiment reicht von Kleidern über Bücher und Platten bis zu Geschirr, mit eigener Retro-Ecke für die besseren Funde, die Stimmung ist unaufgeregt und die Preise gehören zu den fairsten der Innenstadt. Wer das klassische Brocki-Stöbern sucht, ist hier näher dran als bei den kuratierten Vintage-Boutiquen. Lage direkt an der Götgatsbacken macht den Abstecher einfach.",
+   meta:"Götgatan 14, beim Slussen · Mo bis So", url:"https://emmausstockholm.se/"},
+  {cat:"second", sub:"Flohmarkt am Mälaren-Ufer", name:"Hornstulls Marknad", lat:59.31530, lng:18.03270,
+   note:"Von Frühling bis Herbst verwandelt sich die Uferpromenade von Hornstull an Wochenenden in einen Floh- und Streetfood-Markt: private Stände mit Kleidern, Platten, Krimskrams und Sammlerware direkt am Wasser, dazu Foodtrucks und Blick auf die Boote im Mälaren. Qualität und Preise schwanken stark, genau das macht den Reiz aus, Handeln ist erlaubt. Früh kommen für Funde, mittags für Stimmung. Danach Kaffee in einem der Lokale an der Hornstulls strand.",
+   meta:"Hornstulls strand · ca. Apr bis Sep, Sa/So tagsüber · gratis"},
+  {cat:"second", sub:"Der klassischste Flohmarkt der Stadt", name:"Hötorget Sonntags-Flohmarkt", lat:59.33520, lng:18.06280,
+   note:"Unter der Woche verkaufen die Stände auf dem Hötorget Obst, Gemüse und Blumen, am Sonntag übernimmt der Flohmarkt den ganzen Platz: Hausauflösungen, Münzen, Kameras, Geschirr und ehrlicher Trödel vor der blauen Fassade des Konserthuset. Es ist der klassischste Flohmarkt der Stadt, unpoliert und wetterabhängig. Feilschen gehört dazu, Bargeld hilft, auch wenn Swish dominiert. In der Markthalle Hötorgshallen nebenan gibt es danach Essen aus aller Welt.",
+   meta:"Hötorget · So tagsüber, ganzjährig je nach Wetter · Bargeld/Swish"},
+
+  // ---------- Garten & Botanik ----------
+  {cat:"bot", sub:"Der botanische Garten Stockholms", name:"Bergianska trädgården", lat:59.36900, lng:18.04600,
+   note:"Der botanische Garten Stockholms liegt seit 1885 am Ufer der Brunnsviken in Frescati: weitläufige Freianlagen mit Systematik-Beeten, Gemüsegarten und altem Baumbestand, der Parkteil ist gratis zugänglich. Im mediterran-tropischen Edvard-Anderson-Gewächshaus überwintert man gefühlt in einer anderen Klimazone, im kleinen Victoriahaus am Wasser breiten sich im Sommer die Riesenseerosen aus, deren Blätter ein Kind tragen könnten. Schöner Rundweg dem Ufer entlang Richtung Haga. Mit der Roslagsbana oder Bus bis Universitetet.",
+   meta:"Frescati, Nationalstadtpark · Park täglich gratis, Gewächshäuser kostenpflichtig", url:"https://www.bergianska.se/"},
+  {cat:"bot", sub:"Schmetterlinge und Haie im Tropenhaus", name:"Fjärilshuset", lat:59.36670, lng:18.03980,
+   note:"Im Norden des Hagaparks fliegen in einer tropischen Gewächshaushalle hunderte frei gelassene Schmetterlinge zwischen Bananenstauden und Orchideen, bei 25 Grad und Regenwaldluft, im Winter der wärmste Ort der Stadt. Dazu gehört das Haga Ocean, ein grosses Haibecken mit Korallenriff-Aquarien, was die Anlage zum Halbtagesziel mit Kindern macht. Ruhigste Zeit sind Wochentagvormittage. Kombinieren mit einem Spaziergang durch den Park zu den Kupferzelten.",
+   meta:"Hagaparken Nord · täglich · Kombiticket Schmetterlinge/Hai", url:"https://fjarilshuset.se/"},
+  {cat:"bot", sub:"Gustavianischer Landschaftspark", name:"Hagaparken & Koppartälten", lat:59.36120, lng:18.04240,
+   note:"Gustavs III. englischer Landschaftspark von den 1780ern ist das Herzstück des königlichen Nationalstadtparks: weite Wiesen zur Brunnsviken hin, Baumgruppen und Follies wie der Echotempel und Gustavs Pavillon. Blickfang sind die Koppartälten, drei Gebäude mit bemalten Kupferfassaden in Form römischer Feldzelte von 1787, heute mit Parkmuseum und Café. Im Haga slott nebenan wohnt das Kronprinzessinnenpaar, der Park bleibt trotzdem offen. Klassisches Picknickziel der Stockholmer, im Winter Schlittelhügel.",
+   meta:"Hagaparken, Solna · täglich, gratis · Bus ab Odenplan", url:"https://www.kungligaslotten.se/"},
+  {cat:"bot", sub:"Biodynamischer Garten mit Kultcafé", name:"Rosendals Trädgård", lat:59.32700, lng:18.11080,
+   note:"Hinter dem Schlösschen Rosendal auf Djurgården liegt der biodynamische Schaugarten der Stiftung Rosendal: Gemüsefelder, Schnittblumen zum Selberschneiden, Obstgarten und Rebstock-Gewächshäuser, dazwischen eines der beliebtesten Gartencafés des Landes mit Zimtschnecken aus dem Holzofen. Gegessen wird zwischen den Beeten oder unter den Apfelbäumen, das Brot kommt aus der eigenen Bäckerei, die Pflanzen aus der Gärtnerei. Im Sommer am Wochenende voll, werktags morgens magisch. Der Spaziergang hierher durch die Eichenalleen gehört dazu.",
+   meta:"Rosendalsterrassen 12, Djurgården · täglich, Winter reduziert · Garten gratis", url:"https://www.rosendalstradgard.se/"},
+  {cat:"bot", sub:"Schrebergarten-Idylle seit 1919", name:"Tantolunden", lat:59.31050, lng:18.04700,
+   note:"An den Hängen des Tantolunden-Parks über der Årstaviken drängen sich über hundert Schrebergarten-Häuschen aus der Zeit um 1919, winzige, liebevoll bemalte Holzhütten zwischen Stockrosen und Johannisbeeren, zusammen eines der fotogensten Quartiere der Stadt. Die Wege durch die Kolonie sind öffentlich, die Parzellen privat, also schauen statt hineinlaufen. Unten im Park: Badestellen, Grillwiesen und Minigolf mit Wasserblick. Im Hochsommer blüht es hier am wildesten.",
+   meta:"Tantolunden, Södermalm · frei zugänglich · Gärten respektieren"},
+  {cat:"bot", sub:"Ehemaliger königlicher Küchengarten", name:"Kungsträdgården", lat:59.33100, lng:18.07470,
+   note:"Der ehemalige königliche Küchengarten ist heute das grüne Wohnzimmer der Innenstadt und berühmt für Ende April, wenn die Allee japanischer Zierkirschen als rosa Tunnel blüht und halb Stockholm zum Fotografieren kommt. Im Sommer laufen hier Gratiskonzerte und Festivals, im Winter wird die zentrale Fläche zur öffentlichen Eisbahn mit Schlittschuhverleih. An der Nordseite steht die Tunnelbana-Station mit dem Barockgarten-Kunstwerk unter Tage. Klassischer Halt: Kaffee an einem der Kioske und Leute schauen.",
+   meta:"zw. Opernhaus und Nybroplan · immer offen · Kirschblüte ca. Ende April"},
+
+  // ---------- Restaurants & Fika ----------
+  {cat:"food", sub:"Themenmenü im Möbelstudio", price:"$$", name:"Woodstockholm", lat:59.31790, lng:18.07530,
+   note:"Das kleine Restaurant am Mosebacke torg gehört zu einem Möbeldesign-Studio, man sitzt also buchstäblich auf den eigenen Entwürfen. Gekocht wird ein einziges Menü, das alle paar Wochen einem neuen Thema folgt, mal ein Maler, mal ein Land, mal eine Zutat, dazu Naturweine. Für gutes Essen zu fairem Preis mit dem Bib Gourmand des Guide Michelin ausgezeichnet, entsprechend gefragt sind die wenigen Tische. Danach Absacker auf der Mosebacketerrasse nebenan.",
+   meta:"Mosebacke torg 4, Södermalm · Di bis Sa abends · reservieren", url:"https://woodstockholm.com/"},
+  {cat:"food", sub:"Der schwierigste Tisch der Stadt", price:"$$", name:"Lilla Ego", lat:59.34320, lng:18.04660,
+   note:"Zwei bekannte Köche, ein bewusst bodenständiges Quartierlokal in Vasastan: moderne schwedische Küche mit viel Handwerk und fairen Preisen, seit Jahren mit dem Bib Gourmand geadelt und notorisch ausgebucht. Reserviert wird Monate im Voraus, wer spontan kommt, versucht es gleich zur Öffnung an den Plätzen, die für Walk-ins frei bleiben. Klassiker wie das Wallenbergare gehören zum Besten der Stadt. Der Name ist Programm, hier kocht niemand für sein Ego.",
+   meta:"Västmannagatan 69, Vasastan · Di bis Sa abends · früh reservieren", url:"https://lillaego.com/"},
+  {cat:"food", sub:"Sauerteig-Pizza und Naturwein", price:"$", name:"Babette", lat:59.34590, lng:18.05770,
+   note:"Entspanntes Ecklokal in Vasastan mit Sauerteig-Pizza und wechselnden kleinen Tellern, alles zum Teilen, dazu eine lange Naturweinkarte. Ein Teil der Tische bleibt für Spontane frei, entsprechend gemischt und lebhaft ist der Raum bis spät. Im Guide Michelin gelistet und trotzdem komplett unversnobt, die Rechnung bleibt freundlich. Gut kombinierbar mit einem Abendspaziergang durch Vasastan.",
+   meta:"Roslagsgatan 6, Vasastan · täglich abends · Teil der Tische für Walk-ins", url:"https://babette.se/"},
+  {cat:"food", sub:"Bistro-Liebling von SoFo", price:"$", name:"Café Nizza", lat:59.31360, lng:18.08600,
+   note:"Das Schwesterlokal von Babette bringt französisch-italienische Bistroküche nach SoFo: kurze, laufend wechselnde Karte zwischen Pasta, Fisch und Innereien, dazu Naturwein und ein Raum, der jeden Abend voll und laut ist. Im Guide Michelin gelistet, geblieben ist es ein Quartierlokal mit Stammgästen. Geteilt wird sowieso, am besten quer durch die Karte. Danach liegt das SoFo-Nachtleben direkt vor der Tür.",
+   meta:"Åsögatan 171, SoFo · abends · reservieren empfohlen", url:"https://cafenizza.se/"},
+  {cat:"food", sub:"Anarchie als Degustationsmenü", price:"$$", name:"Punk Royale", lat:59.31430, lng:18.08850,
+   note:"Das wohl seltsamste Degustationslokal Skandinaviens: Gänge im Minutentakt, Kaviar grosszügig, Wodka direkt aus der Flasche, laute Musik und Service mit Absicht zum Chaos, dahinter steckt aber präzises Kochen auf hohem Niveau. Man liebt es oder flieht, dazwischen gibt es nichts, der Guide Michelin führt es trotzdem. Nichts für ruhige Geniesser und nicht billig, aber ein Abend, den man nicht vergisst. Nur mit Reservation.",
+   meta:"Folkungagatan 128, SoFo · abends · Menü teuer, reservieren", url:"https://www.punkroyale.se/"},
+  {cat:"food", sub:"Sterneküche nur mit Feuer", price:"$$", name:"Ekstedt", lat:59.33620, lng:18.07350,
+   note:"Niklas Ekstedt kocht ohne Strom am Herd: Alles entsteht über Birkenholzfeuer, Glut, Heurauch und in der Gusseisenpfanne, alte nordische Technik auf Sterneniveau, der Guide Michelin vergibt dafür seit Jahren einen Stern. Das Menü ist eine Abfolge von Feuermomenten, der offene Herd das Zentrum des Raums. Teuer, aber als Konzept weltweit einmalig und der speziellste Splurge der Stadt. Weit im Voraus buchen.",
+   meta:"Humlegårdsgatan 17, Östermalm · Di bis Sa abends · Stern-Preisklasse", url:"https://ekstedt.nu/"},
+  {cat:"food", sub:"Weinbistro mit Designgeschichte", price:"$", name:"Rolfs Kök", lat:59.33840, lng:18.05600,
+   note:"Seit 1989 eine Institution: Das Interieur gestalteten die Designer Jonas Bohlin und Thomas Sandell, die Stühle hängen als Kunst an der Wand, gekocht wird moderne schwedische Bistroküche an der offenen Küche. Dazu eine der besten Weinkarten der Stadt mit viel glasweiser Auswahl. Werktags gibt es den klassischen Lunch, abends sitzt man dicht an dicht, gerne an der Theke mit Blick auf die Köche. Zwischen City und Vasastan, ideal nach der Stadtbibliothek.",
+   meta:"Tegnérgatan 41 · Mo bis Sa · Lunch günstig, abends reservieren", url:"https://rolfskok.se/"},
+  {cat:"food", sub:"Veggie-Buffet mit Hafenblick", price:"$", name:"Hermans", lat:59.31750, lng:18.08980,
+   note:"Vegetarisches Buffet mit dem vielleicht besten Aussichtsplatz der Stadt: Von der Gartenterrasse an der Fjällgatan schaut man über Hafen, Gamla Stan und Djurgården, drinnen wird nachgeschöpft, so oft man mag. Aufläufe, Salate, Suppen und Kuchen, unkompliziert und für Stockholmer Verhältnisse günstig. Im Sommer für die Terrasse früh kommen, die Plätze an der Kante sind schnell weg. Auch für Fleischesser ein Volltreffer.",
+   meta:"Fjällgatan 23, Södermalm · täglich · Buffet ca. SEK 250", url:"https://hermans.se/"},
+  {cat:"food", sub:"Köttbullar in Reinkultur", price:"$", name:"Meatballs for the People", lat:59.31440, lng:18.08120,
+   note:"Ein Lokal, ein Gericht: Köttbullar in allen Varianten, vom Klassiker mit Kartoffelstock, Rahmsauce und Preiselbeeren bis zu Elch, Rentier oder Wildschwein, das Fleisch kommt aus Jagd und Kleinproduktion mit deklarierter Herkunft. Dazu Bier aus der Nachbarschaft und eine Theke mit Bällchen für nach Hause. Abends wird es eng, mittags ist es entspannter. Halb Touristen, halb Einheimische, und das zu Recht.",
+   meta:"Nytorgsgatan 30, SoFo · täglich · ohne Reservation Wartezeit", url:"https://meatball.se/"},
+  {cat:"food", sub:"Günstigster Sattmacher von Söder", price:"$", name:"Falafelbaren", lat:59.31710, lng:18.06200,
+   note:"Winziger Laden an der Hornsgatan mit dem wohl besten Falafel der Stadt, frisch frittiert, dazu hausgemachte Saucen und eingelegtes Gemüse, alles vegetarisch bis vegan. Für rund hundert Kronen wird man richtig satt, entsprechend steht mittags eine Schlange bis aufs Trottoir. Drinnen nur wenige Plätze, am besten mitnehmen und auf dem Mariatorget essen. Die günstigste richtig gute Mahlzeit im Quartier.",
+   meta:"Hornsgatan 39, Södermalm · mittags bis abends · ca. SEK 100"},
+  {cat:"food", sub:"Hausmannskost im Jugendstilsaal", price:"$", name:"Pelikan", lat:59.31130, lng:18.07450,
+   note:"Traditionslokal im Jugendstilsaal mit hohen Decken, Wandmalereien und Kellnern in Weste: schwedische Hausmannskost in Bestform, Köttbullar, gebratener Strömming, Schweinshaxe und eine lange Aquavit-Karte. Die Bierhalle atmet das alte Arbeiter-Söder, nur die Preise sind in der Gegenwart angekommen. Sonntagabends kommt das halbe Quartier zum Klassiker-Essen. Reservieren oder Wartezeit einplanen.",
+   meta:"Blekingegatan 40, Södermalm · täglich abends, Wochenende früher", url:"https://pelikan.se/"},
+  {cat:"food", sub:"Nordisches Bistro in der Bootswerft", price:"$", name:"Oaxen Slip", lat:59.32300, lng:18.09500,
+   note:"Das Bistro der bekannten Oaxen-Küche liegt in einer alten Bootswerft auf Beckholmen, unter der Decke hängen Holzboote, draussen liegt das historische Trockendock. Gekocht wird nordisch und saisonal, vom Werft-Burger bis zum ganzen Fisch, lässiger und günstiger als das frühere Sternerestaurant nebenan. Die Lage zwischen Djurgården-Wald und Hafenbecken ist einmalig. Mittags entspannt, abends besser reservieren.",
+   meta:"Beckholmsvägen 26, Djurgården · täglich · Lunch gute Option", url:"https://oaxen.com/"},
+  {cat:"food", sub:"Fika-Institution seit 1928", price:"$", name:"Vete-Katten", lat:59.33410, lng:18.05970,
+   note:"Die Konditorei von 1928 ist ein Labyrinth aus kleinen Stuben und der klassischste Ort der Stadt für Fika: Prinzessinnentorte, Zimtschnecken und in der Saison Semlor, serviert auf Porzellan unter Kronleuchtern. Gegründet von Ester Nordhammar, die hier Frauen den Weg ins Konditorenhandwerk öffnete. Trotz Lage an der Einkaufsmeile voller Stammgäste. Nachmittags am gemütlichsten, es gilt Selbstbedienung an der Theke.",
+   meta:"Kungsgatan 55, City · täglich · Fika ca. SEK 100", url:"https://www.vetekatten.se/"},
+  {cat:"food", sub:"Markthalle von 1888", price:"$", name:"Östermalms Saluhall", lat:59.33470, lng:18.07760,
+   note:"Die Markthalle von 1888 gilt seit ihrer sorgfältigen Renovation wieder als eine der schönsten Europas: Backstein, Gusseisen und Holzstände, dazwischen Fisch-, Wild- und Käsehändler, teils seit Generationen im Haus. An den Theken isst man mittags Toast Skagen, Fischsuppe oder Austern direkt zwischen den Ständen. Teuer, aber schon fürs Auge einen Besuch wert. Samstags am lebhaftesten, sonntags geschlossen.",
+   meta:"Östermalmstorg · Mo bis Sa · Lunchtheken mittags", url:"https://www.ostermalmshallen.se/"},
+];
+
+const map = L.map('map', {zoomControl:true}).setView([59.3235, 18.0750], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution:'&copy; OpenStreetMap &copy; CARTO', maxZoom:19
+}).addTo(map);
+
+const markers = [];
+PLACES.forEach(p => {
+  const icon = L.divIcon({
+    className:'',
+    html:`<div class="pin ${p.cat}">${CATS[p.cat].emoji}</div>`,
+    iconSize:[38,38], iconAnchor:[19,36]
+  });
+  const m = L.marker([p.lat, p.lng], {icon}).addTo(map);
+  m.on('click', () => openSheet(p));
+  m._cat = p.cat;
+  markers.push(m);
+});
+
+// ---------- Bottom Sheet ----------
+const sheet = document.getElementById('sheet');
+function openSheet(p){
+  document.getElementById('sheetTag').textContent = CATS[p.cat].emoji + ' ' + CATS[p.cat].label;
+  document.getElementById('sheetTag').className = 'tag ' + p.cat;
+  document.getElementById('sheetRoute').style.display = '';
+  const sub = document.getElementById('sheetSub');
+  sub.textContent = (p.sub || '') + (p.price ? ' · ' + p.price : '');
+  sub.style.display = (p.sub || p.price) ? '' : 'none';
+  document.getElementById('sheetTitle').textContent = p.name;
+  document.getElementById('sheetNote').textContent = p.note;
+  document.getElementById('sheetMeta').textContent = p.meta || '';
+  document.getElementById('sheetRoute').href =
+    'https://www.google.com/maps/dir/?api=1&destination=' + p.lat + ',' + p.lng;
+  const web = document.getElementById('sheetWeb');
+  if(p.url){ web.href = p.url; web.style.display = ''; }
+  else { web.style.display = 'none'; }
+  const del = document.getElementById('sheetDel');
+  if(p.cat === 'own'){
+    del.style.display = '';
+    del.onclick = () => removeOwnPin(p);
+  } else {
+    del.style.display = 'none';
+  }
+  sheet.classList.add('open');
+  map.panTo([p.lat, p.lng], {animate:true});
+}
+map.on('click', () => sheet.classList.remove('open'));
+
+// Swipe nach unten schliesst das Sheet
+let startY = null;
+sheet.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, {passive:true});
+sheet.addEventListener('touchmove', e => {
+  if(startY !== null && e.touches[0].clientY - startY > 60){
+    sheet.classList.remove('open'); startY = null;
+  }
+}, {passive:true});
+
+// ---------- Filter ----------
+const state = {};
+Object.keys(CATS).forEach(k => state[k] = true);
+const allOn = () => Object.keys(CATS).every(k => state[k]);
+function applyFilter(){
+  markers.forEach(m => {
+    if(m._cat === 'own') return; // eigene Pins sind immer sichtbar
+    if(state[m._cat]) m.addTo(map); else map.removeLayer(m);
+  });
+  document.querySelectorAll('.chip').forEach(c => {
+    const cat = c.dataset.cat;
+    if(cat === 'all'){
+      c.classList.toggle('off', !allOn());
+    } else {
+      c.classList.toggle('off', !state[cat]);
+    }
+  });
+}
+document.getElementById('chips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  const cat = chip.dataset.cat;
+  if(cat === 'all'){
+    Object.keys(CATS).forEach(k => state[k] = true);
+  } else {
+    // Wenn aktuell alle an sind: nur diese Kategorie zeigen
+    if(allOn()){
+      Object.keys(CATS).forEach(k => state[k] = false);
+      state[cat] = true;
+    } else {
+      state[cat] = !state[cat];
+      if(Object.keys(CATS).every(k => !state[k])){
+        Object.keys(CATS).forEach(k => state[k] = true);
+      }
+    }
+  }
+  applyFilter();
+  sheet.classList.remove('open');
+});
+applyFilter();
+
+// ---------- Eigene Pins (nur auf diesem Gerät, localStorage) ----------
+// Long-Press (mobil) bzw. Rechtsklick (Desktop) auf die Karte legt einen Pin an.
+const OWN_KEY = 'sthlmOwnPins';
+let ownPins = [];
+try { ownPins = JSON.parse(localStorage.getItem(OWN_KEY) || '[]'); } catch(e){ ownPins = []; }
+function saveOwnPins(){ localStorage.setItem(OWN_KEY, JSON.stringify(ownPins)); }
+
+function addOwnMarker(p){
+  const icon = L.divIcon({
+    className:'',
+    html:`<div class="pin own">${CATS.own.emoji}</div>`,
+    iconSize:[38,38], iconAnchor:[19,36]
+  });
+  const m = L.marker([p.lat, p.lng], {icon}).addTo(map);
+  m.on('click', () => openSheet(p));
+  m._cat = 'own';
+  m._p = p;
+  markers.push(m);
+}
+ownPins.forEach(addOwnMarker);
+
+function removeOwnPin(p){
+  if(!confirm('Diesen eigenen Pin löschen?')) return;
+  ownPins = ownPins.filter(x => x !== p);
+  saveOwnPins();
+  const i = markers.findIndex(m => m._p === p);
+  if(i > -1){ map.removeLayer(markers[i]); markers.splice(i, 1); }
+  sheet.classList.remove('open');
+}
+
+map.on('contextmenu', e => {
+  const name = prompt('Neuer eigener Pin - Name:');
+  if(!name) return;
+  const note = prompt('Notiz (optional):') || '';
+  const p = {
+    cat:'own', name:name.trim(), note:note.trim(),
+    meta:'Eigener Pin · nur auf diesem Gerät gespeichert',
+    lat:+e.latlng.lat.toFixed(6), lng:+e.latlng.lng.toFixed(6)
+  };
+  ownPins.push(p); saveOwnPins(); addOwnMarker(p); openSheet(p);
+});
+
+// ---------- Fähren (SL-Pendlerboote, im ÖV-Ticket inbegriffen) ----------
+// Linienverläufe vereinfacht, Stützpunkte an den Anlegern
+const FERRIES = [
+  {name:"Djurgårdsfärjan (Linie 82)", sub:"Die kürzeste Kreuzfahrt der Stadt", color:"#1565c0",
+   note:"Die kürzeste Kreuzfahrt der Stadt: in wenigen Minuten von Slussen über Skeppsholmen nach Djurgården, quer durch die Hafeneinfahrt mit Blick auf Gamla Stan, Grand Hôtel und Gröna Lund. Die Fähre verkehrt seit dem 19. Jahrhundert und ist bis heute normaler ÖV, das SL-Ticket gilt. Für Djurgården-Tage (Vasa, Skansen, ABBA) die schönste Anreise und abends zurück mit beleuchteter Stadt. Draussen stehen, die Überfahrt ist kurz.",
+   meta:"Slussen - Skeppsholmen - Allmänna gränd · ganzjährig, dichter Takt · SL-Ticket",
+   url:"https://sl.se/",
+   segs:[[[59.32030,18.07530],[59.32270,18.07950],[59.32380,18.08300],[59.32330,18.09000],[59.32400,18.09600]]]},
+  {name:"Sjövägen (Linie 80)", sub:"Schärenfahrt zum ÖV-Tarif", color:"#00838f",
+   note:"Das Pendlerboot ab Nybroplan schlängelt sich an Saltsjöqvarn, Finnboda und Kvarnholmen entlang, quert zur Djurgården-Spitze Blockhusudden und endet via Lidingö in Ropsten, eine knappe Stunde Schärenfahrt zum ÖV-Tarif. Unterwegs zeigt sich der Hafen von seiner Arbeitsseite: alte Werften, umgebaute Speicher, Villen im Wald. Wer mag, steigt bei Blockhusudden aus und wandert durch die Wälder Djurgårdens zurück in die Stadt. Aussendeck nicht verpassen.",
+   meta:"Nybroplan - Nacka - Blockhusudden - Ropsten · ganzjährig · SL-Ticket",
+   url:"https://sl.se/",
+   segs:[[[59.33170,18.07900],[59.32880,18.08150],[59.32550,18.08850],[59.32380,18.08700],[59.31700,18.10200],[59.31520,18.11500],[59.31480,18.12600],[59.31700,18.15600],[59.32280,18.13450],[59.34480,18.14250],[59.35680,18.10350]]]}
+];
+FERRIES.forEach(t => {
+  L.polyline(t.segs, {color:'#fff', weight:8, opacity:.75, interactive:false}).addTo(map);
+  const line = L.polyline(t.segs, {color:t.color, weight:4, opacity:.95, dashArray:'1 8',
+    bubblingMouseEvents:false}).addTo(map); // sonst schliesst der map-click-Handler das Sheet sofort
+  const flat = t.segs.flat();
+  const mid = flat[Math.floor(flat.length / 2)];
+  line.on('click', () => openSheet({cat:'boat', sub:t.sub, name:t.name, note:t.note, meta:t.meta, url:t.url, lat:mid[0], lng:mid[1]}));
+});
+
+// ---------- Eigener Standort ----------
+const locateBtn = document.getElementById('locateBtn');
+let watchId = null, meMarker = null, meCircle = null, firstFix = true;
+
+const meIcon = L.divIcon({
+  className:'',
+  html:'<div class="me-rose"><div class="me-beam"></div><div class="me-dot me-pulse"></div></div>',
+  iconSize:[48,48], iconAnchor:[24,24]
+});
+
+// Blickrichtung: Kompass (deviceorientation) mit GPS-Kurs als Fallback
+let meHeading = null, compassStarted = false;
+let beamDeg = null; // kontinuierlicher Winkel (ohne Modulo), damit 359°→1° nicht rückwärts dreht
+function setBeam(deg){
+  if(!meMarker) return;
+  const el = meMarker.getElement() && meMarker.getElement().querySelector('.me-beam');
+  if(el){ el.style.display = 'block'; el.style.transform = 'rotate(' + deg + 'deg)'; }
+}
+function smoothBeam(target){
+  if(beamDeg === null){ beamDeg = target; setBeam(beamDeg); return; }
+  // kürzeste Winkeldifferenz, Totzone gegen Sensor-Zittern, sanft nachziehen
+  const d = ((target - (beamDeg % 360) + 540) % 360) - 180;
+  if(Math.abs(d) < 2) return;
+  beamDeg += d * 0.2;
+  setBeam(beamDeg);
+}
+function onOrient(e){
+  let h = null;
+  if(typeof e.webkitCompassHeading === 'number') h = e.webkitCompassHeading; // iOS
+  else if(e.absolute && typeof e.alpha === 'number') h = 360 - e.alpha;      // Android
+  if(h !== null && !isNaN(h)){ meHeading = h; smoothBeam(h); }
+}
+function startCompass(){
+  if(compassStarted) return;
+  compassStarted = true;
+  if(typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
+    // iOS verlangt eine Nutzer-Geste; Aufruf kommt aus dem Button-Klick
+    DeviceOrientationEvent.requestPermission()
+      .then(s => { if(s === 'granted') window.addEventListener('deviceorientation', onOrient); })
+      .catch(() => {});
+  } else {
+    window.addEventListener('deviceorientationabsolute', onOrient);
+    window.addEventListener('deviceorientation', onOrient);
+  }
+}
+
+function onFix(pos){
+  const ll = [pos.coords.latitude, pos.coords.longitude];
+  if(!meMarker){
+    meMarker = L.marker(ll, {icon:meIcon, zIndexOffset:1000, interactive:false}).addTo(map);
+    if(meHeading !== null) setBeam(meHeading);
+    meCircle = L.circle(ll, {
+      radius:pos.coords.accuracy,
+      color:'#1a73e8', weight:1, opacity:.4,
+      fillColor:'#1a73e8', fillOpacity:.1, interactive:false
+    }).addTo(map);
+  } else {
+    meMarker.setLatLng(ll);
+    meCircle.setLatLng(ll).setRadius(pos.coords.accuracy);
+  }
+  // Ohne Kompass-Daten: Bewegungsrichtung aus dem GPS übernehmen
+  if(meHeading === null && typeof pos.coords.heading === 'number' &&
+     !isNaN(pos.coords.heading) && pos.coords.speed > 0.5){
+    smoothBeam(pos.coords.heading);
+  }
+  if(firstFix){
+    map.setView(ll, Math.max(map.getZoom(), 14), {animate:true});
+    firstFix = false;
+  }
+}
+
+function onErr(err){
+  stopLocate();
+  alert('Standort nicht verfügbar. Bitte Ortungsdienste erlauben (funktioniert nur über HTTPS).');
+}
+
+function startLocate(){
+  if(!('geolocation' in navigator)){ alert('Dieses Gerät unterstützt keine Ortung.'); return; }
+  firstFix = true;
+  watchId = navigator.geolocation.watchPosition(onFix, onErr, {
+    enableHighAccuracy:true, maximumAge:10000, timeout:15000
+  });
+  locateBtn.classList.add('active');
+}
+
+function stopLocate(){
+  if(watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if(meMarker){ map.removeLayer(meMarker); meMarker = null; }
+  if(meCircle){ map.removeLayer(meCircle); meCircle = null; }
+  locateBtn.classList.remove('active');
+}
+
+locateBtn.addEventListener('click', () => {
+  startCompass(); // Nutzer-Geste, nötig für die iOS-Kompass-Erlaubnis
+  if(watchId !== null){
+    if(meMarker) map.setView(meMarker.getLatLng(), Math.max(map.getZoom(), 15), {animate:true});
+    else stopLocate();
+  } else {
+    startLocate();
+  }
+});
+locateBtn.addEventListener('dblclick', stopLocate);
+
+// Beim Laden automatisch versuchen (Browser fragt nach Erlaubnis)
+startLocate();
+
+// Kompass so früh wie möglich: ohne Permission-API (Android/Desktop) sofort,
+// mit Permission-API (iOS) beim ERSTEN Tippen irgendwo auf der Seite
+if(typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission){
+  document.addEventListener('click', startCompass, {once:true});
+  document.addEventListener('touchend', startCompass, {once:true});
+} else {
+  startCompass();
+}
+</script>
+</body>
+</html>
