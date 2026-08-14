@@ -167,8 +167,8 @@
   /* Leaflet Bedienelemente unter die (bis zu 3 Zeilen) Chips schieben */
   .leaflet-top{top:calc(var(--sat) + 150px)}
   .leaflet-control-attribution{font-size:9px}
-  .leaflet-control-scale{margin-bottom:34px;margin-left:12px}
-  @supports (padding: env(safe-area-inset-bottom)){ .leaflet-control-scale{margin-bottom:calc(env(safe-area-inset-bottom) + 34px)} }
+  .leaflet-bottom .leaflet-control-scale{margin-bottom:34px;margin-left:12px}
+  @supports (padding: env(safe-area-inset-bottom)){ .leaflet-bottom .leaflet-control-scale{margin-bottom:calc(env(safe-area-inset-bottom) + 34px)} }
 
   /* ---------- Desktop-Anpassung (mobile first, dann hoch) ---------- */
   @media (min-width:760px){
