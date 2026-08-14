@@ -167,13 +167,14 @@
   /* Leaflet Bedienelemente unter die (bis zu 3 Zeilen) Chips schieben */
   .leaflet-top{top:calc(var(--sat) + 150px)}
   .leaflet-control-attribution{font-size:9px}
+  .leaflet-control-scale{margin-bottom:calc(var(--sab) + 14px);margin-left:12px}
 
   /* ---------- Desktop-Anpassung (mobile first, dann hoch) ---------- */
   @media (min-width:760px){
     header{left:20px;right:auto;width:380px}
     .sheet{left:20px;right:auto;width:380px;border-radius:22px;bottom:20px;max-height:50vh}
     .leaflet-top{top:20px}
-    .leaflet-left{left:auto;right:10px}
+    .leaflet-top.leaflet-left{left:auto;right:10px}
   }
 </style>
 </head>
