@@ -167,7 +167,8 @@
   /* Leaflet Bedienelemente unter die (bis zu 3 Zeilen) Chips schieben */
   .leaflet-top{top:calc(var(--sat) + 150px)}
   .leaflet-control-attribution{font-size:9px}
-  .leaflet-control-scale{margin-bottom:calc(var(--sab) + 32px);margin-left:12px}
+  .leaflet-control-scale{margin-bottom:34px;margin-left:12px}
+  @supports (padding: env(safe-area-inset-bottom)){ .leaflet-control-scale{margin-bottom:calc(env(safe-area-inset-bottom) + 34px)} }
 
   /* ---------- Desktop-Anpassung (mobile first, dann hoch) ---------- */
   @media (min-width:760px){
@@ -508,6 +509,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
   attribution:'&copy; OpenStreetMap &copy; CARTO', maxZoom:19
 }).addTo(map);
 L.control.scale({imperial:false, maxWidth:140}).addTo(map); // Massstab zum Distanzen-Abschätzen
+map.attributionControl.setPrefix(false); // kurze Attribution, kollidierte mit dem Massstab
 
 const markers = [];
 PLACES.forEach(p => {
